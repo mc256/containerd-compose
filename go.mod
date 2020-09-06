@@ -19,7 +19,7 @@ require (
 	github.com/opencontainers/selinux v1.6.0 // indirect
 	github.com/sirupsen/logrus v1.6.0 // indirect
 	github.com/syndtr/gocapability v0.0.0-20200815063812-42c35b437635 // indirect
-	github.com/urfave/cli/v2 v2.2.0 // indirect
+	github.com/urfave/cli/v2 v2.2.0
 	golang.org/x/net v0.0.0-20200904194848-62affa334b73 // indirect
 	golang.org/x/sync v0.0.0-20200625203802-6e8e738ad208 // indirect
 	golang.org/x/sys v0.0.0-20200905004654-be1d3432aa8f // indirect
