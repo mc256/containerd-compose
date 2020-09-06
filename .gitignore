@@ -12,7 +12,10 @@
 *.out
 
 # Dependency directories (remove the comment below to include it)
-# vendor/
+vendor/
 
 #Goland
 .idea
+
+#test
+test-input
