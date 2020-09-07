@@ -65,7 +65,7 @@ containerd-compose
 			Name:        "file",
 			Aliases:     []string{"f"},
 			Usage:       "compose file",
-			DefaultText: "containerd-compose.yml, docker-compose.yml",
+			DefaultText: "(containerd|docker)-compose.y(a)ml",
 			HasBeenSet:  true,
 		},
 		&cli.StringFlag{
@@ -73,6 +73,13 @@ containerd-compose
 			Aliases:     []string{"H", "s"},
 			Usage:       "Containerd daemon socket to connect to",
 			DefaultText: "/run",
+			HasBeenSet:  true,
+		},
+		&cli.StringFlag{
+			Name:        "namespace",
+			Aliases:     []string{"ns"},
+			Usage:       "Containerd namespaces",
+			DefaultText: "default",
 			HasBeenSet:  true,
 		},
 	}

@@ -25,6 +25,14 @@ import (
 	"testing"
 )
 
+func Test_getImageFullName(t *testing.T) {
+	out, err := getFullImageName("nextcloud", "docker.io/library")
+	if err != nil {
+		t.Error(err)
+	}
+	fmt.Println(out)
+}
+
 func Test_ComposerLoaderProvideComposeFile(t *testing.T) {
 	var opts []Option
 
@@ -32,7 +40,7 @@ func Test_ComposerLoaderProvideComposeFile(t *testing.T) {
 	opts = append(opts, WithComposeFile("./docker-compose.yml"))
 	var compose *ComposeFile
 	var err error
-	if compose, err = loadFile(&opts); err != nil {
+	if compose, err = LoadFile(opts...); err != nil {
 		t.Error(err)
 	}
 	if compose.Version != "2" {
@@ -44,14 +52,25 @@ func Test_ComposerLoaderProvideComposeFile(t *testing.T) {
 func Test_ComposerLoaderNonProvideComposeFile(t *testing.T) {
 	var opts []Option
 
-	opts = append(opts, WithComposeFile("./docker-compose.yml"), WithEnvFile("env.txt"))
+	opts = append(opts, WithComposeFile("./xxx-compose.yml"), WithEnvFile("env.txt"))
 	var compose *ComposeFile
 	var err error
-	if compose, err = loadFile(&opts); err != nil {
+	if compose, err = LoadFile(opts...); err != nil {
+		fmt.Println(err)
+	}
+	if compose == nil {
+		fmt.Println("OK")
+	}
+}
+
+func Test_LoadContainerd(t *testing.T) {
+	var opts []Option
+	var compose *ComposeFile
+	var err error
+	if compose, err = LoadFile(opts...); err != nil {
 		t.Error(err)
 	}
-	if compose.Version != "2" {
-		t.Error("version error")
+	if err := LaunchService(compose, opts...); err != nil {
+		t.Error(err)
 	}
-	fmt.Println(compose)
 }

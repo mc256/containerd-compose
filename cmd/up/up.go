@@ -21,11 +21,23 @@
 package up
 
 import (
+	"containerd-compose/operations/composer"
+	"fmt"
 	"github.com/urfave/cli/v2"
 )
 
 func Action(context *cli.Context) error {
+	var opts []composer.Option
+
+	// parse containerd-compose file
+	var compose *composer.ComposeFile
+	var err error
+	if compose, err = composer.LoadFile(opts...); err != nil {
+		return err
+	}
+
 	//TODO: bring up the container
+	fmt.Println(*compose)
 
 	return nil
 }

@@ -23,14 +23,19 @@ package composer
 type Option func(*options)
 
 type options struct {
-	composeFile string
-	projectDir  string
-	envFile     string
+	composeFile      []string
+	projectDir       string
+	envFile          string
+	containerdSocket string
+	namespace        string
+	defaultRegistry  string
 }
 
 func WithComposeFile(composeFile string) Option {
 	return func(opts *options) {
-		opts.composeFile = composeFile
+		opts.composeFile = []string{
+			composeFile,
+		}
 	}
 }
 
@@ -44,4 +49,57 @@ func WithEnvFile(envFile string) Option {
 	return func(opts *options) {
 		opts.envFile = envFile
 	}
+}
+
+func WithContainerdSocketFile(socket string) Option {
+	return func(opts *options) {
+		opts.containerdSocket = socket
+	}
+}
+
+func WithNamespace(namespace string) Option {
+	return func(opts *options) {
+		opts.namespace = namespace
+	}
+}
+
+func WithDefaultImageRegistry(registry string) Option {
+	return func(opts *options) {
+		opts.defaultRegistry = registry
+	}
+}
+
+func parseOptions(opts *[]Option) *options {
+	opt := options{}
+	for _, o := range *opts {
+		o(&opt)
+	}
+	if opt.envFile == "" {
+		opt.envFile = ".env"
+	}
+	if opt.projectDir == "" {
+		opt.projectDir = "./"
+	}
+	if len(opt.composeFile) == 0 {
+		opt.composeFile = []string{
+			"./containerd-compose.yml",
+			"./docker-compose.yml",
+			"./containerd-compose.yaml",
+			"./docker-compose.yaml",
+		}
+	}
+
+	if opt.containerdSocket == "" {
+		opt.containerdSocket = "/run/containerd/containerd.sock"
+	}
+
+	if opt.namespace == "" {
+		opt.namespace = "default"
+	}
+
+	if opt.defaultRegistry == "" {
+		opt.defaultRegistry = "docker.io/library"
+	}
+
+	return &opt
 }
