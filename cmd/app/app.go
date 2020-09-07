@@ -48,6 +48,13 @@ containerd-compose
 			DefaultText: "containerd-compose.yml, docker-compose.yml",
 			HasBeenSet:  true,
 		},
+		&cli.StringFlag{
+			Name:        "host",
+			Aliases:     []string{"H", "s"},
+			Usage:       "Containerd daemon socket to connect to",
+			DefaultText: "/run",
+			HasBeenSet:  true,
+		},
 	}
 	app.Commands = append([]*cli.Command{
 		cmdVersion.Command(),
