@@ -1,8 +1,10 @@
 package composer
 
 import (
+	"github.com/joho/godotenv"
 	"gopkg.in/yaml.v2"
 	"io/ioutil"
+	"os"
 )
 
 func init() {
@@ -17,10 +19,10 @@ func loadFile(opts *[]Option) (*ComposeFile, error) {
 	}
 
 	// Read yaml file from local
-	var bytes []byte
+	var buffer []byte
 	var err error
 	if opt.composeFile != "" {
-		bytes, err = ioutil.ReadFile(opt.composeFile)
+		buffer, err = ioutil.ReadFile(opt.composeFile)
 		if err != nil {
 			return nil, err
 		}
@@ -30,7 +32,7 @@ func loadFile(opts *[]Option) (*ComposeFile, error) {
 			"./containerd-compose.yml",
 			"./docker-compose.yml",
 		} {
-			bytes, err = ioutil.ReadFile(d)
+			buffer, err = ioutil.ReadFile(d)
 			if err == nil {
 				break
 			}
@@ -40,9 +42,17 @@ func loadFile(opts *[]Option) (*ComposeFile, error) {
 		}
 	}
 
+	// Get Environment Variables
+	if opt.envFile != "" {
+		_ = godotenv.Load(opt.envFile)
+	} else {
+		_ = godotenv.Load(".env")
+	}
+	buffer = []byte(os.ExpandEnv(string(buffer)))
+
 	// Parse Yaml file
 	t := ComposeFile{}
-	if err := yaml.Unmarshal(bytes, &t); err != nil {
+	if err := yaml.Unmarshal(buffer, &t); err != nil {
 		return nil, err
 	}
 
