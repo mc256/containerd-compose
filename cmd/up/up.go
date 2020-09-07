@@ -22,31 +22,34 @@ package up
 
 import (
 	"containerd-compose/operations/composer"
-	"fmt"
 	"github.com/urfave/cli/v2"
 )
 
-func Action(context *cli.Context) error {
-	var opts []composer.Option
+func Action(context *cli.Context, contextParsers ...composer.ContextParser) error {
+	opts, err := composer.ContextToOptions(context, contextParsers...)
+	if err != nil {
+		return err
+	}
 
-	// parse containerd-compose file
 	var compose *composer.ComposeFile
-	var err error
 	if compose, err = composer.LoadFile(opts...); err != nil {
 		return err
 	}
 
-	//TODO: bring up the container
-	fmt.Println(*compose)
+	if err := composer.LaunchApplication(compose, opts...); err != nil {
+		return err
+	}
 
 	return nil
 }
 
-func Command() *cli.Command {
+func Command(parsers ...composer.ContextParser) *cli.Command {
 	cmd := cli.Command{
-		Name:   "up",
-		Usage:  "Builds, (re)creates, starts, and attached to containers for a service.",
-		Action: Action,
+		Name:  "up",
+		Usage: "Builds, (re)creates, starts, and attached to containers for a service.",
+		Action: func(c *cli.Context) error {
+			return Action(c, append(parsers, ParseContext)...)
+		},
 		Flags: []cli.Flag{
 			&cli.BoolFlag{
 				Name:    "detach",
@@ -56,4 +59,14 @@ func Command() *cli.Command {
 		},
 	}
 	return &cmd
+}
+
+func ParseContext(context *cli.Context) ([]composer.Option, error) {
+	var opts []composer.Option
+
+	if context.Bool("detach") {
+		opts = append(opts, composer.WithDetachMode())
+	}
+
+	return opts, nil
 }

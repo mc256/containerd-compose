@@ -20,10 +20,16 @@
 
 package composer
 
+import "github.com/urfave/cli/v2"
+
+type ContextParser func(context *cli.Context) ([]Option, error)
 type Option func(*options)
 
 type options struct {
+	isDebug          bool
+	isDetach         bool
 	composeFile      []string
+	projectName      string
 	projectDir       string
 	envFile          string
 	containerdSocket string
@@ -31,11 +37,29 @@ type options struct {
 	defaultRegistry  string
 }
 
+func WithDebugMode() Option {
+	return func(opts *options) {
+		opts.isDebug = true
+	}
+}
+
+func WithDetachMode() Option {
+	return func(opts *options) {
+		opts.isDetach = true
+	}
+}
+
 func WithComposeFile(composeFile string) Option {
 	return func(opts *options) {
 		opts.composeFile = []string{
 			composeFile,
 		}
+	}
+}
+
+func WithProjectName(projectName string) Option {
+	return func(opts *options) {
+		opts.projectName = projectName
 	}
 }
 
@@ -67,6 +91,18 @@ func WithDefaultImageRegistry(registry string) Option {
 	return func(opts *options) {
 		opts.defaultRegistry = registry
 	}
+}
+
+func ContextToOptions(context *cli.Context, contextParsers ...ContextParser) ([]Option, error) {
+	var opts []Option
+	for _, p := range contextParsers {
+		temp, err := p(context)
+		if err != nil {
+			return nil, err
+		}
+		opts = append(opts, temp...)
+	}
+	return opts, nil
 }
 
 func parseOptions(opts *[]Option) *options {

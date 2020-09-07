@@ -21,6 +21,7 @@
 package app
 
 import (
+	"containerd-compose/operations/composer"
 	"containerd-compose/version"
 
 	cmdUp "containerd-compose/cmd/up"
@@ -64,29 +65,68 @@ containerd-compose
 		&cli.StringFlag{
 			Name:        "file",
 			Aliases:     []string{"f"},
-			Usage:       "compose file",
+			Usage:       "compose file name",
 			DefaultText: "(containerd|docker)-compose.y(a)ml",
-			HasBeenSet:  true,
+		},
+		&cli.StringFlag{
+			Name:        "project-name",
+			Aliases:     []string{"p"},
+			Usage:       "Specify an alternate project name",
+			DefaultText: "directory name",
 		},
 		&cli.StringFlag{
 			Name:        "host",
 			Aliases:     []string{"H", "s"},
 			Usage:       "Containerd daemon socket to connect to",
-			DefaultText: "/run",
-			HasBeenSet:  true,
+			DefaultText: "/run/containerd/containerd.sock",
+		},
+		&cli.StringFlag{
+			Name:        "env-file",
+			Aliases:     []string{"env", "e"},
+			Usage:       "Specify an alternate environment file",
+			DefaultText: "./.env",
 		},
 		&cli.StringFlag{
 			Name:        "namespace",
 			Aliases:     []string{"ns"},
 			Usage:       "Containerd namespaces",
 			DefaultText: "default",
-			HasBeenSet:  true,
 		},
 	}
 	app.Commands = append([]*cli.Command{
 		cmdVersion.Command(),
-		cmdUp.Command(),
+		cmdUp.Command(ParseContext),
 	})
 
 	return app
+}
+
+func ParseContext(context *cli.Context) ([]composer.Option, error) {
+	var opts []composer.Option
+
+	if context.Bool("debug") {
+		opts = append(opts, composer.WithDebugMode())
+	}
+
+	if composeFile := context.String("file"); composeFile != "" {
+		opts = append(opts, composer.WithComposeFile(composeFile))
+	}
+
+	if projectName := context.String("project-name"); projectName != "" {
+		opts = append(opts, composer.WithProjectName(projectName))
+	}
+
+	if host := context.String("host"); host != "" {
+		opts = append(opts, composer.WithContainerdSocketFile(host))
+	}
+
+	if envFile := context.String("env-file"); envFile != "" {
+		opts = append(opts, composer.WithEnvFile(envFile))
+	}
+
+	if namespace := context.String("namespace"); namespace != "" {
+		opts = append(opts, composer.WithNamespace(namespace))
+	}
+
+	return opts, nil
 }

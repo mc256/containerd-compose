@@ -28,7 +28,6 @@ import (
 	"github.com/containerd/containerd/cio"
 	"github.com/containerd/containerd/namespaces"
 	"github.com/containerd/containerd/oci"
-	"github.com/gosuri/uilive"
 	"github.com/joho/godotenv"
 	"gopkg.in/yaml.v2"
 	"io/ioutil"
@@ -92,7 +91,7 @@ func LoadFile(opts ...Option) (*ComposeFile, error) {
 	return &t, nil
 }
 
-func LaunchService(compose *ComposeFile, opts ...Option) error {
+func LaunchApplication(compose *ComposeFile, opts ...Option) error {
 	// Options
 	var opt *options
 	opt = parseOptions(&opts)
@@ -109,22 +108,17 @@ func LaunchService(compose *ComposeFile, opts ...Option) error {
 	//image, err := client.Pull(ctx, )
 
 	for k, s := range compose.Services {
-		writer := uilive.New()
-		writer.Start()
-		fmt.Fprintf(writer, "%s Preparing", k)
 		imageName, err := getFullImageName(s.Image, opt.defaultRegistry)
 		if err != nil {
 			return err
 		}
 
-		fmt.Fprintf(writer, "%s Pulling %s", k, imageName)
 		image, err := client.Pull(ctx, imageName, containerd.WithPullUnpack)
 		if err != nil {
 			return err
 		}
 
 		// Create Container
-		fmt.Fprintf(writer, "%s Creating Container", k)
 		container, err := client.NewContainer(
 			ctx,
 			fmt.Sprintf("%s", k),
@@ -137,7 +131,6 @@ func LaunchService(compose *ComposeFile, opts ...Option) error {
 		}
 
 		// Create Task
-		fmt.Fprintf(writer, "%s Creating Task", k)
 		task, err := container.NewTask(ctx, cio.NewCreator(cio.WithStdio))
 		if err != nil {
 			return err
@@ -150,12 +143,14 @@ func LaunchService(compose *ComposeFile, opts ...Option) error {
 		}
 
 		// call start on the task to execute the redis server
-		fmt.Fprintf(writer, "%s Started", k)
 		if err := task.Start(ctx); err != nil {
 			return err
 		}
-		writer.Stop()
 	}
 
+	return nil
+}
+
+func StopApplication(opts ...Option) error {
 	return nil
 }
