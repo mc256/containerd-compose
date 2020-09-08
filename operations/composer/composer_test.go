@@ -70,7 +70,7 @@ func Test_LoadContainerd(t *testing.T) {
 	if compose, err = LoadFile(opts...); err != nil {
 		t.Error(err)
 	}
-	if err := LaunchService(compose, opts...); err != nil {
+	if err := LaunchApplication(compose, opts...); err != nil {
 		t.Error(err)
 	}
 }

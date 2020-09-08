@@ -20,7 +20,11 @@
 
 package composer
 
-import "github.com/urfave/cli/v2"
+import (
+	"github.com/urfave/cli/v2"
+	"os"
+	"strings"
+)
 
 type ContextParser func(context *cli.Context) ([]Option, error)
 type Option func(*options)
@@ -28,6 +32,7 @@ type Option func(*options)
 type options struct {
 	isDebug          bool
 	isDetach         bool
+	isForced         bool
 	composeFile      []string
 	projectName      string
 	projectDir       string
@@ -46,6 +51,12 @@ func WithDebugMode() Option {
 func WithDetachMode() Option {
 	return func(opts *options) {
 		opts.isDetach = true
+	}
+}
+
+func WithForce() Option {
+	return func(opts *options) {
+		opts.isForced = true
 	}
 }
 
@@ -122,6 +133,16 @@ func parseOptions(opts *[]Option) *options {
 			"./docker-compose.yml",
 			"./containerd-compose.yaml",
 			"./docker-compose.yaml",
+		}
+	}
+
+	if opt.projectName == "" {
+		dir, err := os.Getwd()
+		if err != nil {
+			opt.projectName = "void"
+		} else {
+			split := strings.Split(dir, "/")
+			opt.projectName = split[len(split)-1]
 		}
 	}
 

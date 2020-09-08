@@ -21,6 +21,7 @@
 package composer
 
 import (
+	"containerd-compose/logger"
 	"context"
 	"errors"
 	"fmt"
@@ -29,6 +30,7 @@ import (
 	"github.com/containerd/containerd/namespaces"
 	"github.com/containerd/containerd/oci"
 	"github.com/joho/godotenv"
+	"github.com/opencontainers/runtime-spec/specs-go"
 	"gopkg.in/yaml.v2"
 	"io/ioutil"
 	"os"
@@ -95,6 +97,7 @@ func LaunchApplication(compose *ComposeFile, opts ...Option) error {
 	// Options
 	var opt *options
 	opt = parseOptions(&opts)
+	logger.N("building project: %s", opt.projectName)
 
 	// Connect to containerd service
 	client, err := containerd.New(opt.containerdSocket)
@@ -102,38 +105,66 @@ func LaunchApplication(compose *ComposeFile, opts ...Option) error {
 		return err
 	}
 	defer client.Close()
+	logger.N("connected to containerd: %s", opt.containerdSocket)
 
 	// Pull Image to Namespace
 	ctx := namespaces.WithNamespace(context.Background(), opt.namespace)
-	//image, err := client.Pull(ctx, )
+	logger.N("using namespace: %s", opt.namespace)
 
 	for k, s := range compose.Services {
+		logger.N("building service: %s", k)
 		imageName, err := getFullImageName(s.Image, opt.defaultRegistry)
 		if err != nil {
 			return err
 		}
 
+		logger.N("pulling image: %s", imageName)
 		image, err := client.Pull(ctx, imageName, containerd.WithPullUnpack)
 		if err != nil {
 			return err
 		}
 
+		// ---------------------------------------------------------------
+		containerId := fmt.Sprintf("%s-%s", opt.projectName, k)
+
+		// Prepare Mounting
+		logger.N("preparing mounting points: %s", containerId)
+		var mounts []specs.Mount
+
 		// Create Container
+		logger.N("creating container: %s", containerId)
+		var spec []oci.SpecOpts
+		spec = append(spec, oci.WithImageConfig(image))
+		spec = append(spec, oci.WithEnv(s.Environment))
+		spec = append(spec, oci.WithMounts(mounts))
+
 		container, err := client.NewContainer(
 			ctx,
-			fmt.Sprintf("%s", k),
+			containerId,
 			containerd.WithImage(image),
-			containerd.WithNewSnapshot(fmt.Sprintf("%s-snapshot", k), image),
+			containerd.WithNewSnapshot(fmt.Sprintf("%s-snapshot", containerId), image),
 			containerd.WithNewSpec(oci.WithImageConfig(image)),
 		)
+
 		if err != nil {
 			return err
 		}
 
 		// Create Task
-		task, err := container.NewTask(ctx, cio.NewCreator(cio.WithStdio))
-		if err != nil {
-			return err
+		var task containerd.Task
+		logger.N("creating task: %s", containerId)
+		if opt.isDetach {
+			task, err = container.NewTask(ctx, cio.NewCreator())
+			if err != nil {
+				return err
+			}
+		} else {
+			stdout := logger.NewStreamLogger(containerId, "out")
+			stderr := logger.NewStreamLogger(containerId, "err")
+			task, err = container.NewTask(ctx, cio.NewCreator(cio.WithStreams(nil, stdout, stderr)))
+			if err != nil {
+				return err
+			}
 		}
 
 		// make sure we wait before calling start
@@ -143,6 +174,7 @@ func LaunchApplication(compose *ComposeFile, opts ...Option) error {
 		}
 
 		// call start on the task to execute the redis server
+		logger.N("launched: %s", containerId)
 		if err := task.Start(ctx); err != nil {
 			return err
 		}
@@ -151,6 +183,7 @@ func LaunchApplication(compose *ComposeFile, opts ...Option) error {
 	return nil
 }
 
-func StopApplication(opts ...Option) error {
+func StopApplication(compose *ComposeFile, opts ...Option) error {
+
 	return nil
 }
