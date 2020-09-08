@@ -24,6 +24,7 @@ import (
 	"containerd-compose/operations/composer"
 	"containerd-compose/version"
 
+	cmdDown "containerd-compose/cmd/down"
 	cmdUp "containerd-compose/cmd/up"
 	cmdVersion "containerd-compose/cmd/version"
 
@@ -92,10 +93,17 @@ containerd-compose
 			Usage:       "Containerd namespaces",
 			DefaultText: "default",
 		},
+		&cli.StringFlag{
+			Name:        "volume",
+			Aliases:     []string{"vol"},
+			Usage:       "Default path to storage volumes",
+			DefaultText: "./volumes",
+		},
 	}
 	app.Commands = append([]*cli.Command{
 		cmdVersion.Command(),
 		cmdUp.Command(ParseContext),
+		cmdDown.Command(ParseContext),
 	})
 
 	return app
@@ -126,6 +134,10 @@ func ParseContext(context *cli.Context) ([]composer.Option, error) {
 
 	if namespace := context.String("namespace"); namespace != "" {
 		opts = append(opts, composer.WithNamespace(namespace))
+	}
+
+	if volume := context.String("volume"); volume != "" {
+		opts = append(opts, composer.WithVolumeBase(volume))
 	}
 
 	return opts, nil

@@ -23,6 +23,7 @@ package composer
 import (
 	"github.com/urfave/cli/v2"
 	"os"
+	"path/filepath"
 	"strings"
 )
 
@@ -40,6 +41,7 @@ type options struct {
 	containerdSocket string
 	namespace        string
 	defaultRegistry  string
+	volumeBase       string
 }
 
 func WithDebugMode() Option {
@@ -104,6 +106,12 @@ func WithDefaultImageRegistry(registry string) Option {
 	}
 }
 
+func WithVolumeBase(base string) Option {
+	return func(opts *options) {
+		opts.volumeBase = base
+	}
+}
+
 func ContextToOptions(context *cli.Context, contextParsers ...ContextParser) ([]Option, error) {
 	var opts []Option
 	for _, p := range contextParsers {
@@ -156,6 +164,16 @@ func parseOptions(opts *[]Option) *options {
 
 	if opt.defaultRegistry == "" {
 		opt.defaultRegistry = "docker.io/library"
+	}
+
+	if opt.volumeBase == "" {
+
+		dir, err := os.Getwd()
+		if err != nil {
+			opt.volumeBase = filepath.Join("/tmp/", "volumes")
+		} else {
+			opt.volumeBase = filepath.Join(dir, "volumes")
+		}
 	}
 
 	return &opt

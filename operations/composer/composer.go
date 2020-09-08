@@ -23,6 +23,7 @@ package composer
 import (
 	"containerd-compose/logger"
 	"context"
+	"crypto/sha1"
 	"errors"
 	"fmt"
 	"github.com/containerd/containerd"
@@ -32,10 +33,14 @@ import (
 	"github.com/joho/godotenv"
 	"github.com/opencontainers/runtime-spec/specs-go"
 	"gopkg.in/yaml.v2"
+	"io"
 	"io/ioutil"
 	"os"
+	"os/user"
 	"path"
+	"path/filepath"
 	"strings"
+	"syscall"
 )
 
 func init() {
@@ -93,11 +98,31 @@ func LoadFile(opts ...Option) (*ComposeFile, error) {
 	return &t, nil
 }
 
+func calculateVolumeHash(containerId string, dst string) (result string) {
+	h := sha1.New()
+	_, _ = io.WriteString(h, containerId)
+	_, _ = io.WriteString(h, dst)
+	result = fmt.Sprintf("%x", h.Sum(nil))
+	return
+}
+
+func createMountingDir(dir string) error {
+	dirSplit := strings.Split(dir, "/")
+	lastSplit := strings.Split(dirSplit[len(dirSplit)-1], ".")
+	if len(lastSplit) >= 1 {
+		return nil
+	}
+	if err := os.MkdirAll(dir, os.ModePerm); err != nil {
+		return err
+	}
+	return nil
+}
+
 func LaunchApplication(compose *ComposeFile, opts ...Option) error {
 	// Options
 	var opt *options
 	opt = parseOptions(&opts)
-	logger.N("building project: %s", opt.projectName)
+	logger.N("project: %s --- <up>", opt.projectName)
 
 	// Connect to containerd service
 	client, err := containerd.New(opt.containerdSocket)
@@ -130,6 +155,48 @@ func LaunchApplication(compose *ComposeFile, opts ...Option) error {
 		// Prepare Mounting
 		logger.N("preparing mounting points: %s", containerId)
 		var mounts []specs.Mount
+		for _, v := range s.Volumes {
+			sl := strings.Split(v, ":")
+			var src, dst string
+			var mountOpts []string
+			if len(sl) == 1 {
+				dst = sl[0]
+				src = filepath.Join(opt.volumeBase, calculateVolumeHash(containerId, dst+k))
+				_ = createMountingDir(src)
+				mountOpts = []string{"rw"}
+			} else {
+				if len(sl) == 2 {
+					mountOpts = []string{"rw"}
+				} else {
+					mountOpts = sl[2:]
+				}
+
+				src = sl[0]
+				dst = sl[1]
+				if strings.HasPrefix(src, "~/") {
+					usr, _ := user.Current()
+					src = filepath.Join(usr.HomeDir, src[2:])
+				} else if strings.HasPrefix(src, "./") {
+					pwd, _ := os.Getwd()
+					src = filepath.Join(pwd, src[2:])
+				} else if strings.HasPrefix(src, "/") {
+					// happy
+				} else {
+					src = filepath.Join(opt.volumeBase, calculateVolumeHash(containerId, dst))
+				}
+			}
+			if err := createMountingDir(src); err != nil {
+				return err
+			}
+			mounts = append(mounts, specs.Mount{
+				Destination: dst,
+				Source:      src,
+				Type:        "bind",
+				Options:     append([]string{"rbind"}, mountOpts...),
+			})
+		}
+
+		// TODO: Volumes Form
 
 		// Create Container
 		logger.N("creating container: %s", containerId)
@@ -137,13 +204,14 @@ func LaunchApplication(compose *ComposeFile, opts ...Option) error {
 		spec = append(spec, oci.WithImageConfig(image))
 		spec = append(spec, oci.WithEnv(s.Environment))
 		spec = append(spec, oci.WithMounts(mounts))
+		fmt.Println(mounts)
 
 		container, err := client.NewContainer(
 			ctx,
 			containerId,
 			containerd.WithImage(image),
 			containerd.WithNewSnapshot(fmt.Sprintf("%s-snapshot", containerId), image),
-			containerd.WithNewSpec(oci.WithImageConfig(image)),
+			containerd.WithNewSpec(spec...),
 		)
 
 		if err != nil {
@@ -185,5 +253,55 @@ func LaunchApplication(compose *ComposeFile, opts ...Option) error {
 
 func StopApplication(compose *ComposeFile, opts ...Option) error {
 
+	// Options
+	var opt *options
+	opt = parseOptions(&opts)
+	logger.N("project: %s --- <down>", opt.projectName)
+
+	// Connect to containerd service
+	client, err := containerd.New(opt.containerdSocket)
+	if err != nil {
+		return err
+	}
+	defer client.Close()
+	logger.N("connected to containerd: %s", opt.containerdSocket)
+
+	// Pull Image to Namespace
+	ctx := namespaces.WithNamespace(context.Background(), opt.namespace)
+	logger.N("using namespace: %s", opt.namespace)
+
+	for k, _ := range compose.Services {
+		containerId := fmt.Sprintf("%s-%s", opt.projectName, k)
+		logger.N("stopping service: %s", containerId)
+		// ---------------------------------------------------------------
+		container, err := client.LoadContainer(ctx, containerId)
+		if err != nil {
+			logger.N("load container error: %s - %v", containerId, err)
+		} else {
+			task, err := container.Task(ctx, nil)
+			if err != nil {
+				logger.N("load task error: %s - %v", containerId, err)
+			} else {
+				exitStatus, err := task.Wait(ctx)
+				if err != nil {
+					logger.N("task wait error: %s - %v", containerId, err)
+				}
+				if err := task.Kill(ctx, syscall.SIGTERM); err != nil {
+					logger.N("kill task error: %s - %v", containerId, err)
+				}
+				status := <-exitStatus
+				code, _, err := status.Result()
+				logger.N("task exited (%d) with error: %v", code, err)
+
+				if _, err := task.Delete(ctx); err != nil {
+					logger.N("delete task error: %s - %v", containerId, err)
+				}
+			}
+			if err := container.Delete(ctx, containerd.WithSnapshotCleanup); err != nil {
+				logger.N("delete container error: %s - %v", containerId, err)
+			}
+		}
+	}
+	logger.N("project '%s' down", opt.projectName)
 	return nil
 }

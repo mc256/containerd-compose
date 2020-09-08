@@ -22,9 +22,11 @@ package composer
 
 type ComposeFile struct {
 	Version  string
+	Volumes  map[string]struct{}
 	Services map[string]struct {
 		Image       string
 		Volumes     []string
 		Environment []string
+		VolumesFrom []string `yaml:"volumes_from"`
 	}
 }

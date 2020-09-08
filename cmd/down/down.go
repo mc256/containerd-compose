@@ -45,8 +45,8 @@ func Action(context *cli.Context, contextParsers ...composer.ContextParser) erro
 
 func Command(parsers ...composer.ContextParser) *cli.Command {
 	cmd := cli.Command{
-		Name:  "up",
-		Usage: "Builds, (re)creates, starts, and attached to containers for a service.",
+		Name:  "down",
+		Usage: "Stop and remove containers, tasks, snapshots.",
 		Action: func(c *cli.Context) error {
 			return Action(c, append(parsers, ParseContext)...)
 		},
