@@ -30,17 +30,20 @@ import (
 	"github.com/containerd/containerd/cio"
 	"github.com/containerd/containerd/namespaces"
 	"github.com/containerd/containerd/oci"
+	"github.com/containerd/containerd/snapshots"
 	"github.com/joho/godotenv"
 	"github.com/opencontainers/runtime-spec/specs-go"
 	"gopkg.in/yaml.v2"
 	"io"
 	"io/ioutil"
 	"os"
+	"os/signal"
 	"os/user"
 	"path"
 	"path/filepath"
 	"strings"
 	"syscall"
+	"time"
 )
 
 func init() {
@@ -86,7 +89,7 @@ func LoadFile(opts ...Option) (*ComposeFile, error) {
 	}
 
 	// Get Environment Variables
-	_ = godotenv.Load(".env")
+	_ = godotenv.Load(opt.envFile)
 
 	buffer = []byte(os.ExpandEnv(string(buffer)))
 
@@ -98,24 +101,69 @@ func LoadFile(opts ...Option) (*ComposeFile, error) {
 	return &t, nil
 }
 
-func calculateVolumeHash(containerId string, dst string) (result string) {
+func calculateVolumeHash(projectName string, serviceName string, dst string) (result string) {
 	h := sha1.New()
-	_, _ = io.WriteString(h, containerId)
+	_, _ = io.WriteString(h, projectName)
+	_, _ = io.WriteString(h, serviceName)
 	_, _ = io.WriteString(h, dst)
-	result = fmt.Sprintf("%x", h.Sum(nil))
+	result = fmt.Sprintf("%x", h.Sum(nil))[:10]
 	return
 }
 
 func createMountingDir(dir string) error {
 	dirSplit := strings.Split(dir, "/")
 	lastSplit := strings.Split(dirSplit[len(dirSplit)-1], ".")
-	if len(lastSplit) >= 1 {
+	if len(lastSplit) > 1 {
 		return nil
 	}
 	if err := os.MkdirAll(dir, os.ModePerm); err != nil {
 		return err
 	}
 	return nil
+}
+
+func parseVolumesConfiguration(volume string, projectName string, serviceName string, opt *options) (mount *specs.Mount, err error) {
+	sl := strings.Split(volume, ":")
+	var src, dst string
+	var mountOpts []string
+	if len(sl) == 1 {
+		dst = sl[0]
+		src = filepath.Join(opt.volumeBase, calculateVolumeHash(projectName, serviceName, dst))
+		_ = createMountingDir(src)
+		mountOpts = []string{"rw"}
+	} else {
+		if len(sl) == 2 {
+			mountOpts = []string{"rw"}
+		} else {
+			mountOpts = sl[2:]
+		}
+
+		src = sl[0]
+		dst = sl[1]
+		if strings.HasPrefix(src, "~/") {
+			usr, _ := user.Current()
+			src = filepath.Join(usr.HomeDir, src[2:])
+		} else if strings.HasPrefix(src, "./") {
+			pwd, _ := os.Getwd()
+			src = filepath.Join(pwd, src[2:])
+		} else if strings.HasPrefix(src, "/") {
+			// happy
+		} else {
+			src = filepath.Join(opt.volumeBase, calculateVolumeHash(projectName, serviceName, dst))
+		}
+	}
+	if err := createMountingDir(src); err != nil {
+		return nil, err
+	}
+	//fmt.Println(mountOpts)
+	mount = &specs.Mount{
+		Destination: dst,
+		Source:      src,
+		Type:        "bind",
+		Options:     append([]string{"rbind"}, mountOpts...),
+		//Options:     []string{"rw"},
+	}
+	return mount, nil
 }
 
 func LaunchApplication(compose *ComposeFile, opts ...Option) error {
@@ -136,9 +184,9 @@ func LaunchApplication(compose *ComposeFile, opts ...Option) error {
 	ctx := namespaces.WithNamespace(context.Background(), opt.namespace)
 	logger.N("using namespace: %s", opt.namespace)
 
-	for k, s := range compose.Services {
-		logger.N("building service: %s", k)
-		imageName, err := getFullImageName(s.Image, opt.defaultRegistry)
+	for serviceName, serviceConfig := range compose.Services {
+		logger.N("building service: %s", serviceName)
+		imageName, err := getFullImageName(serviceConfig.Image, opt.defaultRegistry)
 		if err != nil {
 			return err
 		}
@@ -150,67 +198,50 @@ func LaunchApplication(compose *ComposeFile, opts ...Option) error {
 		}
 
 		// ---------------------------------------------------------------
-		containerId := fmt.Sprintf("%s-%s", opt.projectName, k)
+		containerId := fmt.Sprintf("%s-%s", opt.projectName, serviceName)
 
 		// Prepare Mounting
 		logger.N("preparing mounting points: %s", containerId)
 		var mounts []specs.Mount
-		for _, v := range s.Volumes {
-			sl := strings.Split(v, ":")
-			var src, dst string
-			var mountOpts []string
-			if len(sl) == 1 {
-				dst = sl[0]
-				src = filepath.Join(opt.volumeBase, calculateVolumeHash(containerId, dst+k))
-				_ = createMountingDir(src)
-				mountOpts = []string{"rw"}
-			} else {
-				if len(sl) == 2 {
-					mountOpts = []string{"rw"}
-				} else {
-					mountOpts = sl[2:]
-				}
-
-				src = sl[0]
-				dst = sl[1]
-				if strings.HasPrefix(src, "~/") {
-					usr, _ := user.Current()
-					src = filepath.Join(usr.HomeDir, src[2:])
-				} else if strings.HasPrefix(src, "./") {
-					pwd, _ := os.Getwd()
-					src = filepath.Join(pwd, src[2:])
-				} else if strings.HasPrefix(src, "/") {
-					// happy
-				} else {
-					src = filepath.Join(opt.volumeBase, calculateVolumeHash(containerId, dst))
-				}
-			}
-			if err := createMountingDir(src); err != nil {
+		for _, v := range serviceConfig.Volumes {
+			if mount, err := parseVolumesConfiguration(v, opt.projectName, serviceName, opt); err != nil {
 				return err
+			} else {
+				mounts = append(mounts, *mount)
 			}
-			mounts = append(mounts, specs.Mount{
-				Destination: dst,
-				Source:      src,
-				Type:        "bind",
-				Options:     append([]string{"rbind"}, mountOpts...),
-			})
 		}
 
-		// TODO: Volumes Form
+		for _, otherService := range serviceConfig.VolumesFrom {
+			for _, v := range compose.Services[otherService].Volumes {
+				if mount, err := parseVolumesConfiguration(v, opt.projectName, otherService, opt); err != nil {
+					return err
+				} else {
+					mounts = append(mounts, *mount)
+				}
+			}
+		}
+		logger.N("mounting points: %v", mounts)
 
 		// Create Container
 		logger.N("creating container: %s", containerId)
 		var spec []oci.SpecOpts
 		spec = append(spec, oci.WithImageConfig(image))
-		spec = append(spec, oci.WithEnv(s.Environment))
+		spec = append(spec, oci.WithEnv(serviceConfig.Environment))
 		spec = append(spec, oci.WithMounts(mounts))
-		fmt.Println(mounts)
+		spec = append(spec, oci.WithHostNamespace(specs.NetworkNamespace))
+		spec = append(spec, oci.WithHostHostsFile)
+		spec = append(spec, oci.WithHostResolvconf)
+
+		//spec = append(spec, oci.WithPrivileged)
+		//spec = append(spec, oci.WithAllDevicesAllowed)
+
+		var snapshotOps []snapshots.Opt
 
 		container, err := client.NewContainer(
 			ctx,
 			containerId,
 			containerd.WithImage(image),
-			containerd.WithNewSnapshot(fmt.Sprintf("%s-snapshot", containerId), image),
+			containerd.WithNewSnapshot(fmt.Sprintf("%s-snapshot", containerId), image, snapshotOps...),
 			containerd.WithNewSpec(spec...),
 		)
 
@@ -244,6 +275,24 @@ func LaunchApplication(compose *ComposeFile, opts ...Option) error {
 		// call start on the task to execute the redis server
 		logger.N("launched: %s", containerId)
 		if err := task.Start(ctx); err != nil {
+			return err
+		}
+	}
+
+	if !opt.isDetach {
+		signalChan := make(chan os.Signal, 1)
+		done := make(chan bool, 1)
+
+		signal.Notify(signalChan, syscall.SIGINT, syscall.SIGTERM)
+
+		go func() {
+			sig := <-signalChan
+			fmt.Println()
+			logger.N("received signal: %s", sig)
+			done <- true
+		}()
+		<-done
+		if err := StopApplication(compose, opts...); err != nil {
 			return err
 		}
 	}
@@ -286,12 +335,42 @@ func StopApplication(compose *ComposeFile, opts ...Option) error {
 				if err != nil {
 					logger.N("task wait error: %s - %v", containerId, err)
 				}
+
+				keyboardSignal := make(chan os.Signal, 1)
+				done := make(chan bool, 1)
+				signal.Notify(keyboardSignal, syscall.SIGINT, syscall.SIGTERM)
+
+				var task_killed = false
+				go func() {
+					time.Sleep(10 * time.Second)
+					if !task_killed {
+						logger.N("killing task %s takes longer than 10 seconds, press Ctrl+C to force exit", containerId)
+					}
+				}()
+
 				if err := task.Kill(ctx, syscall.SIGTERM); err != nil {
 					logger.N("kill task error: %s - %v", containerId, err)
+					done <- true
+				} else {
+					done <- true
 				}
+
+				go func() {
+					_ = <-keyboardSignal
+					if !task_killed {
+						_ = task.Kill(ctx, syscall.SIGKILL)
+						fmt.Println()
+						logger.N("sent SIGKILL: %s", containerId)
+						done <- true
+					}
+				}()
+
+				<-done
 				status := <-exitStatus
+
 				code, _, err := status.Result()
 				logger.N("task exited (%d) with error: %v", code, err)
+				task_killed = true
 
 				if _, err := task.Delete(ctx); err != nil {
 					logger.N("delete task error: %s - %v", containerId, err)
