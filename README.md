@@ -5,7 +5,7 @@ With **containerd-compose**, you use a YAML file (e.g. the docker-compose.yml) t
 Then, using a single command, you create and start all the services from your configuration.
 
 This program is designed to be compatible with docker-compose files, but we have not yet implemented all the features. 
-Please check the [Supported Parameters section](###Supported Parameters).
+Please check the [Supported Parameters section](https://github.com/mc256/containerd-compose#supported-parameters).
 
 ### Install
 Please install [containerd](https://github.com/containerd/containerd) first.
