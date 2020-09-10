@@ -18,7 +18,7 @@ go install
 ```
 
 
-###Supported Parameters
+### Supported Parameters
 
 - services
     - image
@@ -28,7 +28,7 @@ go install
     
 
 
-###Example
+### Example
 **containerd-compose** also supports `.env` file. You can write `$ENVIRONMENT_VARIABLES` in your compose file.
 
 Example for [nextcloud](https://github.com/nextcloud/docker):
