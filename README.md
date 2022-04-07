@@ -1,3 +1,7 @@
+# Please try out [nerdctl](https://github.com/containerd/nerdctl)
+
+------
+
 # containerd-compose (WIP)
 
 **containerd-compose** is a tool for defining and running multi-container applications. 
